@@ -122,22 +122,35 @@ pickButton.MouseButton1Click:Connect(function()
 end)
 
 local busy = false
+local function flash(text)
+	confirm.Text = text
+	task.wait(2)
+	confirm.Text = "Confirm"
+end
 confirm.MouseButton1Click:Connect(function()
-	local target = chosen.Value
-	local amount = math.floor(tonumber(amountBox.Text) or 0)
-	if busy or not target or amount <= 0 then
+	if busy then
 		return
 	end
 	busy = true
-	local ok, sent = pcall(bankDeposit.InvokeServer, bankDeposit, "Transfer", amount, target)
-	if ok and sent then
-		confirm.Text = "Transfer successful!"
-		addRecent("You sent $" .. amount .. " to " .. target.Name)
+	local target = chosen.Value
+	-- v295b: "$1,000" / "1 000" read as 1000 (they used to read as 0 and nothing happened)
+	local amount = math.floor(tonumber((amountBox.Text:gsub("[^%d%.]", ""))) or 0)
+	if not target or not target.Parent then
+		chosen.Value = nil
+		pickButton.Text = "Player"
+		flash("Pick a player first")
+	elseif amount <= 0 then
+		flash("Enter an amount")
 	else
-		confirm.Text = "Insufficient funds!"
+		local ok, sent, why = pcall(bankDeposit.InvokeServer, bankDeposit, "Transfer", amount, target)
+		if ok and sent then
+			amountBox.Text = ""
+			addRecent("You sent $" .. amount .. " to " .. target.Name)
+			flash("Transfer successful!")
+		else
+			flash(if ok and type(why) == "string" then why else "Transfer failed - try again")
+		end
 	end
-	task.wait(2)
-	confirm.Text = "Confirm"
 	busy = false
 end)
 

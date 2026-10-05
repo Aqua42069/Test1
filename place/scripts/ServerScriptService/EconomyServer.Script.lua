@@ -610,7 +610,7 @@ local function bank(player, action, amount, target)
 	-- v255: a frozen account (felony money case) takes deposits but pays nothing out
 	if player:GetAttribute("AssetsFrozen") and action ~= "Deposit" then
 		notify(player, "ACCOUNT FROZEN - Clark County DA", 5)
-		return false
+		return false, "Account frozen"
 	end
 	if action == "Deposit" then
 		if player.Cash.Value < amount then
@@ -631,11 +631,15 @@ local function bank(player, action, amount, target)
 		addDirty(player, "Cash", d)
 		return true
 	elseif action == "Transfer" then
-		if typeof(target) ~= "Instance" or not target:IsA("Player") or target == player or not loaded[target] then
-			return false
+		-- (v295b: the phone app shows the reason - it used to say "Insufficient funds!" for everything)
+		if typeof(target) ~= "Instance" or not target:IsA("Player") or target == player then
+			return false, "Pick someone to send it to"
+		end
+		if not target.Parent or not loaded[target] then
+			return false, target.Name .. " isn't online any more"
 		end
 		if player.Money.Value < amount then
-			return false
+			return false, "Insufficient funds"
 		end
 		-- dirty money stays dirty in someone else's account; a frozen friend gets it as cash
 		local d = takeDirty(player, "Money", amount)

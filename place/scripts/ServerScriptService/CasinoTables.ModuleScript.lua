@@ -1919,17 +1919,27 @@ local function buildCraps(machine: any, cf: CFrame, parent: Instance): BasePart
 	-- the bets: printed boxes on the felt you click to put your chip down
 	local spots = {}
 	local function spot(kind: string, value: number, text: string, x: number, z: number, w: number, d: number, color: Color3?, textColor: Color3?)
-		-- (turned so its Top-face text runs along the box's length, reading from the players' side)
-		local p = part("CrapsSpot", Vector3.new(d - 0.08, 0.04, w - 0.08), cf * CFrame.new(x, FT + 0.02, z) * CFrame.Angles(0, math.rad(90), 0), color or felt, Enum.Material.Fabric)
+		local p = part("CrapsSpot", Vector3.new(w - 0.08, 0.04, d - 0.08), cf * CFrame.new(x, FT + 0.02, z), color or felt, Enum.Material.Fabric)
 		p.CanCollide = false
 		p:SetAttribute("BetKind", kind)
 		p:SetAttribute("BetValue", value)
+		-- v295b: the print is on a thin plate lying on the box with its FRONT face up (its X along
+		-- the box's length, its "up" pointing away from the players) - a Front-face SurfaceGui reads
+		-- upright from the players' side whatever the Top-face convention is (the box's own Top
+		-- face put the text across the short side, then nowhere when the box was turned)
+		local plate = part("CrapsSpotPrint", Vector3.new(w - 0.08, d - 0.08, 0.02),
+			CFrame.fromMatrix((cf * CFrame.new(x, FT + 0.05, z)).Position, cf.XVector, cf.ZVector, -cf.YVector), white)
+		plate.Transparency = 1
+		plate.CanCollide = false
+		plate.CanQuery = false -- (clicks go through to the box)
+		plate.CanTouch = false
+		plate.CastShadow = false
 		local g = Instance.new("SurfaceGui")
-		g.Face = Enum.NormalId.Top
+		g.Face = Enum.NormalId.Front
 		g.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
 		g.PixelsPerStud = 40
 		g.LightInfluence = 0.4
-		g.Parent = p
+		g.Parent = plate
 		local frame = Instance.new("Frame")
 		frame.Size = UDim2.fromScale(1, 1)
 		frame.BackgroundTransparency = 1
