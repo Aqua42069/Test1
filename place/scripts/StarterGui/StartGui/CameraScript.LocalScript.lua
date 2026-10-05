@@ -1,0 +1,3 @@
+-- The menu camera now lives in SideMenu.Play/FrameTween (it has to be able to
+-- return the camera here when the tour is closed). Kept only so nothing that
+-- references this script breaks.
