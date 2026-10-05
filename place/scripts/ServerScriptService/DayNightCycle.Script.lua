@@ -10,6 +10,16 @@ local DAY_LENGTH_MINUTES = 24 -- 1 in-game hour per real minute
 local START_HOUR = 9 -- servers start in the morning
 
 Lighting.ClockTime = START_HOUR
+-- v295b: which day it is (+1 each time the clock passes midnight) - RoomLightsClient draws a
+-- fresh pattern of lit hotel windows every night from it
+Lighting:SetAttribute("CityDay", Lighting:GetAttribute("CityDay") or 1)
+local function setClock(t: number)
+	local old = Lighting.ClockTime
+	if old >= 12 and t < 12 then
+		Lighting:SetAttribute("CityDay", (Lighting:GetAttribute("CityDay") or 1) + 1)
+	end
+	Lighting.ClockTime = t
+end
 local hoursPerSecond = 24 / (DAY_LENGTH_MINUTES * 60)
 local accumulated = 0
 
@@ -19,7 +29,7 @@ RunService.Heartbeat:Connect(function(dt)
 	if accumulated < 0.25 then
 		return
 	end
-	Lighting.ClockTime = (Lighting.ClockTime + accumulated * hoursPerSecond) % 24
+	setClock((Lighting.ClockTime + accumulated * hoursPerSecond) % 24)
 	accumulated = 0
 end)
 
@@ -80,7 +90,7 @@ local function run(p: Player, msg: string)
 		toast(p, "Try /time 21, /time 9:30, /time 6am, /time night")
 		return
 	end
-	Lighting.ClockTime = t
+	setClock(t)
 	accumulated = 0
 	local hh, mm = math.floor(t), math.floor((t % 1) * 60 + 0.5)
 	toast(p, ("Time set to %02d:%02d"):format(hh, mm))
