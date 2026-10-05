@@ -1392,31 +1392,81 @@ do
 			local r = request("Clear", id)
 			status.Text = if r and r.ok then "Your bets that can come down are back in your bank" else (r and r.message or "")
 		end)
-		-- the table's boxes: clicking one bets the picked chip there
-		local conns = {}
-		local function hookTable(model)
-			for _, spot in model:GetDescendants() do
-				if spot.Name == "CrapsSpot" then
-					local cd = spot:FindFirstChildOfClass("ClickDetector")
-					if cd then
-						table.insert(conns, cd.MouseClick:Connect(function()
-							if current ~= bar then return end
-							local r = request("Bet", id, chipValue, { kind = spot:GetAttribute("BetKind"), value = spot:GetAttribute("BetValue") })
-							if r and r.ok then
-								status.Text = ("%s on %s"):format(fmt(chipValue), tostring(spot:GetAttribute("BetKind")) .. (if (spot:GetAttribute("BetValue") or 0) > 0 then " " .. spot:GetAttribute("BetValue") else ""))
-							else
-								status.Text = r and r.message or ""
-							end
-						end))
+		-- the table's boxes: clicking one bets the picked chip there.
+		-- v295c: our own ray from the mouse / tap, against the boxes only - the ClickDetectors lost the
+		-- click to anything on top of a box (the transparent print plate, the chip stacks), so a
+		-- click on the felt did nothing. The box under the cursor gets a gold outline.
+		local UIS = game:GetService("UserInputService")
+		local RunService = game:GetService("RunService")
+		local tableModel = nil
+		local spotList = {}
+		local lastScan = 0
+		local function boxes()
+			-- (re-scanned now and then: the table streams in, and may arrive after the bar opens)
+			if os.clock() - lastScan > 2 or not (tableModel and tableModel.Parent) then
+				lastScan = os.clock()
+				if not (tableModel and tableModel.Parent) then
+					tableModel = nil
+					for _, m in workspace:GetDescendants() do
+						if m:IsA("Model") and m:GetAttribute("CasinoId") == id then tableModel = m break end
+					end
+				end
+				spotList = {}
+				if tableModel then
+					for _, d in tableModel:GetDescendants() do
+						if d.Name == "CrapsSpot" and d:IsA("BasePart") then table.insert(spotList, d) end
 					end
 				end
 			end
+			return spotList
 		end
-		for _, m in workspace:GetDescendants() do
-			if m:IsA("Model") and m:GetAttribute("CasinoId") == id then hookTable(m) end
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Include
+		local function spotAt(screenPos)
+			local cam = workspace.CurrentCamera
+			local list = boxes()
+			if not cam or #list == 0 then return nil end
+			params.FilterDescendantsInstances = list
+			local ray = cam:ScreenPointToRay(screenPos.X, screenPos.Y)
+			local hit = workspace:Raycast(ray.Origin, ray.Direction * 120, params)
+			return hit and hit.Instance or nil
 		end
+		local hover = Instance.new("SelectionBox")
+		hover.Color3 = GOLD
+		hover.LineThickness = 0.05
+		hover.SurfaceTransparency = 0.85
+		hover.SurfaceColor3 = GOLD
+		hover.Parent = bar
+		local busy = false
+		local function placeOn(spot)
+			if busy or current ~= bar then return end
+			busy = true
+			local r = request("Bet", id, chipValue, { kind = spot:GetAttribute("BetKind"), value = spot:GetAttribute("BetValue") })
+			if r and r.ok then
+				status.Text = ("%s on %s"):format(fmt(chipValue), tostring(spot:GetAttribute("BetKind")) .. (if (spot:GetAttribute("BetValue") or 0) > 0 then " " .. spot:GetAttribute("BetValue") else ""))
+			else
+				status.Text = r and r.message or "That bet didn't go through"
+			end
+			busy = false
+		end
+		local conns = {}
+		table.insert(conns, UIS.InputBegan:Connect(function(input, processed)
+			if processed or current ~= bar then return end -- (a click on the chip bar isn't a bet)
+			local t = input.UserInputType
+			if t ~= Enum.UserInputType.MouseButton1 and t ~= Enum.UserInputType.Touch then return end
+			local spot = spotAt(input.Position)
+			if spot then task.spawn(placeOn, spot) end
+		end))
+		table.insert(conns, RunService.RenderStepped:Connect(function()
+			if current ~= bar or UIS.TouchEnabled and not UIS.MouseEnabled then
+				hover.Adornee = nil
+				return
+			end
+			hover.Adornee = spotAt(UIS:GetMouseLocation() - game:GetService("GuiService"):GetGuiInset())
+		end))
 		closeCleanup = function()
 			for _, c in conns do c:Disconnect() end
+			hover:Destroy()
 		end
 		local NAMES = { Pass = "Pass", DontPass = "Don't Pass", Field = "Field", Place = "Place", Hard = "Hard", Any7 = "Any 7", AnyCraps = "Any Craps", Yo = "Yo" }
 		poll(bar, id, tableCamera, function(st)
