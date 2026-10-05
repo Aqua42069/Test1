@@ -79,6 +79,7 @@ local CLEO_COLORS = {
 	CLEOPATRA = Color3.fromRGB(235, 185, 40),
 }
 
+local TweenService = game:GetService("TweenService")
 local screen = Instance.new("ScreenGui")
 screen.Name = "CasinoGui"
 screen.ResetOnSpawn = false
@@ -239,16 +240,39 @@ end
 -- the rack: a scrolling row of the chips this table takes; returns the rack and a function that
 -- marks the chip matching a bet amount as picked
 local function chipRack(frame, minBet, maxBet, setBet, props)
+	-- v295d: the strip sits between two arrow buttons, and the mouse wheel scrolls it sideways (a
+	-- horizontal ScrollingFrame barely moved with the wheel; its 6-px bar was the only way on PC)
+	local holder = make("Frame", { BackgroundColor3 = Color3.fromRGB(46, 28, 16), BorderSizePixel = 0 }, frame)
+	make("UICorner", { CornerRadius = UDim.new(0, 8) }, holder)
+	make("UIStroke", { Color = GOLD, Transparency = 0.5 }, holder)
+	for k, v in pairs(props or {}) do holder[k] = v end
+	local AW = 0.07 -- each arrow's share of the width
 	local rack = make("ScrollingFrame", {
-		BackgroundColor3 = Color3.fromRGB(46, 28, 16), BorderSizePixel = 0, ScrollingDirection = Enum.ScrollingDirection.X,
+		Position = UDim2.fromScale(AW, 0), Size = UDim2.fromScale(1 - 2 * AW, 1),
+		BackgroundTransparency = 1, BorderSizePixel = 0, ScrollingDirection = Enum.ScrollingDirection.X,
 		ScrollBarThickness = 6, ScrollBarImageColor3 = GOLD, CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.X,
 		ElasticBehavior = Enum.ElasticBehavior.Always,
-	}, frame)
-	make("UICorner", { CornerRadius = UDim.new(0, 8) }, rack)
-	make("UIStroke", { Color = GOLD, Transparency = 0.5 }, rack)
+	}, holder)
 	make("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), VerticalAlignment = Enum.VerticalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder }, rack)
-	make("UIPadding", { PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6) }, rack)
-	for k, v in pairs(props or {}) do rack[k] = v end
+	make("UIPadding", { PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 4), PaddingBottom = UDim.new(0, 6) }, rack)
+	local function scrollBy(px)
+		local maxX = math.max(0, rack.AbsoluteCanvasSize.X - rack.AbsoluteWindowSize.X)
+		local x = math.clamp(rack.CanvasPosition.X + px, 0, maxX)
+		TweenService:Create(rack, TweenInfo.new(0.15), { CanvasPosition = Vector2.new(x, 0) }):Play()
+	end
+	for _, side in { -1, 1 } do
+		local arrow = button(holder, if side < 0 then "<" else ">", DARK, {
+			Position = UDim2.fromScale(if side < 0 then 0 else 1 - AW, 0.08), Size = UDim2.fromScale(AW, 0.84), TextColor3 = GOLD,
+		})
+		arrow.MouseButton1Click:Connect(function() scrollBy(side * rack.AbsoluteWindowSize.X * 0.8) end)
+	end
+	local function wheel(input)
+		if input.UserInputType == Enum.UserInputType.MouseWheel then
+			scrollBy(-input.Position.Z * 90)
+		end
+	end
+	holder.InputChanged:Connect(wheel)
+	rack.InputChanged:Connect(wheel)
 	local slots = {}
 	local function pick(v)
 		for value, s in pairs(slots) do
@@ -263,13 +287,14 @@ local function chipRack(frame, minBet, maxBet, setBet, props)
 			local c = chip(b, v, { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(0.86, 0.86) })
 			local ring = make("UIStroke", { Color = Color3.fromRGB(255, 240, 160), Thickness = 3, Enabled = false }, b)
 			slots[v] = { chip = c, ring = ring }
+			b.InputChanged:Connect(wheel)
 			b.MouseButton1Click:Connect(function()
 				setBet(v)
 				pick(v)
 			end)
 		end
 	end
-	return rack, pick
+	return holder, pick
 end
 
 -- Shared window: title, balance, bet box with quick buttons, status line.
@@ -1438,11 +1463,13 @@ do
 		hover.SurfaceColor3 = GOLD
 		hover.Parent = bar
 		local busy = false
+		local drawMyChips -- (below)
 		local function placeOn(spot)
 			if busy or current ~= bar then return end
 			busy = true
 			local r = request("Bet", id, chipValue, { kind = spot:GetAttribute("BetKind"), value = spot:GetAttribute("BetValue") })
 			if r and r.ok then
+				drawMyChips(r.myBets)
 				status.Text = ("%s on %s"):format(fmt(chipValue), tostring(spot:GetAttribute("BetKind")) .. (if (spot:GetAttribute("BetValue") or 0) > 0 then " " .. spot:GetAttribute("BetValue") else ""))
 			else
 				status.Text = r and r.message or "That bet didn't go through"
@@ -1464,12 +1491,89 @@ do
 			end
 			hover.Adornee = spotAt(UIS:GetMouseLocation() - game:GetService("GuiService"):GetGuiInset())
 		end))
+		-- v295d: your own chips, drawn here on the boxes from your bets as the server confirms them
+		-- (the stacks the server lays down didn't show up for the player betting); the server's
+		-- copies of yours are hidden so they don't double up. Everyone else's come from the server.
+		local myChips = Instance.new("Folder")
+		myChips.Name = "MyCrapsChips"
+		myChips.Parent = workspace
+		local shownKey = nil
+		function drawMyChips(bets)
+			local key = {}
+			for _, b in ipairs(bets or {}) do table.insert(key, ("%s%s=%d"):format(b.kind, tostring(b.value or 0), b.amount)) end
+			table.sort(key)
+			key = table.concat(key, ",")
+			if key == shownKey and (#myChips:GetChildren() > 0) == (key ~= "") then return end
+			shownKey = key
+			myChips:ClearAllChildren()
+			local byKey = {}
+			for _, spot in boxes() do
+				byKey[tostring(spot:GetAttribute("BetKind")) .. tostring(spot:GetAttribute("BetValue") or 0)] = spot
+			end
+			for _, b in ipairs(bets or {}) do
+				local box = byKey[tostring(b.kind) .. tostring(b.value or 0)]
+				if box then
+					-- the stack: largest chips first, up to 10 high
+					local stack, left = {}, b.amount
+					for i = #CHIP_DENOMS, 1, -1 do
+						while left >= CHIP_DENOMS[i][1] and #stack < 10 do
+							table.insert(stack, CHIP_DENOMS[i])
+							left -= CHIP_DENOMS[i][1]
+						end
+					end
+					if #stack == 0 then stack = { CHIP_DENOMS[1] } end
+					local up = box.CFrame.UpVector
+					local base = box.Position + up * (box.Size.Y / 2)
+					for k = #stack, 1, -1 do
+						local h = #stack - k
+						local d = stack[k]
+						local c = Instance.new("Part")
+						c.Name = "MyChip"
+						c.Shape = Enum.PartType.Cylinder
+						c.Size = Vector3.new(0.12, 0.62, 0.62)
+						c.CFrame = CFrame.new(base + up * (0.07 + h * 0.12)) * CFrame.Angles(0, 0, math.rad(90))
+						c.Color = d[2]
+						c.Material = Enum.Material.SmoothPlastic
+						c.Anchored = true
+						c.CanCollide = false
+						c.CanQuery = false
+						c.CanTouch = false
+						c.CastShadow = false
+						-- the inlay (the chip's print colour, a disc on each face)
+						local inlay = c:Clone()
+						inlay.Name = "MyChipInlay"
+						inlay.Size = Vector3.new(0.124, 0.4, 0.4)
+						inlay.Color = d[3]
+						inlay.Parent = myChips
+						c.Parent = myChips
+					end
+				end
+			end
+		end
+		local function hideServerCopies()
+			if not tableModel then return end
+			local chipsFolder = tableModel:FindFirstChild("Chips")
+			if not chipsFolder then return end
+			for _, c in chipsFolder:GetChildren() do
+				if c:IsA("BasePart") and c:GetAttribute("OwnerId") == player.UserId then c.LocalTransparencyModifier = 1 end
+			end
+		end
 		closeCleanup = function()
 			for _, c in conns do c:Disconnect() end
 			hover:Destroy()
+			myChips:Destroy()
+			-- walking away: the server's stacks of yours show again
+			local chipsFolder = tableModel and tableModel:FindFirstChild("Chips")
+			if chipsFolder then
+				for _, c in chipsFolder:GetChildren() do
+					if c:IsA("BasePart") then c.LocalTransparencyModifier = 0 end
+				end
+			end
 		end
 		local NAMES = { Pass = "Pass", DontPass = "Don't Pass", Field = "Field", Place = "Place", Hard = "Hard", Any7 = "Any 7", AnyCraps = "Any Craps", Yo = "Yo" }
 		poll(bar, id, tableCamera, function(st)
+			drawMyChips(st.myBets)
+			hideServerCopies()
 			local dice = st.dice and (("  ·  last roll %d + %d"):format(st.dice[1], st.dice[2])) or ""
 			info.Text = (if st.point then ("POINT %d"):format(st.point) else "COMING OUT") .. dice
 			local parts = {}

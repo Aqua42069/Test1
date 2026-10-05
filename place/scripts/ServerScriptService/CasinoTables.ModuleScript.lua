@@ -1790,7 +1790,7 @@ local function crRoll(s: any, machine: any, shooter: Player?)
 		while #s.history > 14 do table.remove(s.history) end
 		if machine.crapsBoard then machine.crapsBoard.Text = text end
 		if machine.crapsPuck then pcall(machine.crapsPuck, s.point) end
-		if machine.crapsChips then pcall(machine.crapsChips, s) end
+		if machine.crapsChips then local okC, errC = pcall(machine.crapsChips, s) if not okC then warn("[Craps] chips: " .. tostring(errC)) end end
 		crSchedule(s)
 		-- the stickman's timer
 		local token = s.ends
@@ -1846,7 +1846,7 @@ local function crapsAction(player: Player, machine: any, id: string, action: str
 				if s.phase == "Betting" and s.ends == token then crRoll(s, machine, nil) end
 			end)
 		end
-		if machine.crapsChips then pcall(machine.crapsChips, s) end
+		if machine.crapsChips then local okC, errC = pcall(machine.crapsChips, s) if not okC then warn("[Craps] chips: " .. tostring(errC)) end end
 		return crSnapshot(s, player)
 	elseif action == "Roll" then
 		if s.phase ~= "Betting" then
@@ -1874,7 +1874,7 @@ local function crapsAction(player: Player, machine: any, id: string, action: str
 			s.bets[player] = if #keep > 0 then keep else nil
 			if refund > 0 then ctx.pay(player, refund) end
 		end
-		if machine.crapsChips then pcall(machine.crapsChips, s) end
+		if machine.crapsChips then local okC, errC = pcall(machine.crapsChips, s) if not okC then warn("[Craps] chips: " .. tostring(errC)) end end
 		return crSnapshot(s, player)
 	end
 	return { ok = false, message = "?" }
@@ -2017,7 +2017,7 @@ local function buildCraps(machine: any, cf: CFrame, parent: Instance): BasePart
 	machine.crapsChips = function(s: any)
 		chipFolder:ClearAllChildren()
 		local seat = 0
-		for _, list in s.bets do
+		for plr, list in s.bets do
 			seat += 1
 			for _, bet in list do
 				local box = spots[bet.kind .. tostring(bet.value)]
@@ -2045,6 +2045,8 @@ local function buildCraps(machine: any, cf: CFrame, parent: Instance): BasePart
 						c.CanCollide = false
 						c.CanQuery = false
 						c.CanTouch = false
+						-- v295d: whose they are - that player's own client draws theirs itself
+						c:SetAttribute("OwnerId", if typeof(plr) == "Instance" then plr.UserId else 0)
 						c.Parent = chipFolder
 					end
 				end

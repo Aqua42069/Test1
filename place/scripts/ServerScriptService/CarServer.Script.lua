@@ -646,14 +646,28 @@ do
 		return m
 	end
 
+	local enter -- (below)
 	remote.OnServerEvent:Connect(function(player, target)
 		local char = player.Character
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
 		local root = char and char:FindFirstChild("HumanoidRootPart")
-		if not hum or not root or hum.Health <= 0 or busy[player] then
+		if not hum or not root or hum.Health <= 0 then
 			return
 		end
-		if target == nil then
+		-- v295d: getting OUT never waits on anything (it used to be refused while "busy")
+		if target ~= nil and busy[player] then
+			return
+		end
+		if target ~= nil then
+			-- the walk to the door and the sit run protected: an error part-way used to leave the
+			-- player "busy" for the rest of the session - every F, in or out, ignored after that
+			busy[player] = true
+			local ok, err = pcall(enter, player, target, char, hum, root)
+			busy[player] = nil
+			if not ok then warn(("[CarServer] F (get in) failed for %s: %s"):format(player.Name, tostring(err))) end
+			return
+		end
+		do
 			-- out: break the seat weld (Sit = false from the server doesn't always take);
 			-- the seat's own Occupant code then puts them beside the door
 			local seat = hum.SeatPart
@@ -666,6 +680,8 @@ do
 			end
 			return
 		end
+	end)
+	enter = function(player, target, char, hum, root)
 		if typeof(target) ~= "Instance" or not (target:IsA("VehicleSeat") or target:IsA("Seat") or target:IsA("Model"))
 			or not target:IsDescendantOf(workspace) or hum:GetAttribute("PoliceCuffed") or player:GetAttribute("CustodyStage") ~= nil then
 			print(("[CarServer] F from %s ignored: target=%s cuffed=%s custody=%s"):format(player.Name, tostring(target), tostring(hum:GetAttribute("PoliceCuffed")), tostring(player:GetAttribute("CustodyStage"))))
@@ -707,7 +723,6 @@ do
 		if not target or (target.Position - root.Position).Magnitude > 16 then
 			return
 		end
-		busy[player] = true
 		-- walk to the door, then in
 		local side = target.CFrame.RightVector * (if target.CFrame:PointToObjectSpace(root.Position).X < 0 then -1 else 1)
 		local door = target.Position + side * 3.5
@@ -724,8 +739,8 @@ do
 			allowCarEntry(player)
 			target:Sit(hum)
 		end
-		busy[player] = nil
-	end)
+	end
+	Players.PlayerRemoving:Connect(function(p) busy[p] = nil end)
 end
 
 -- parked GTA cars: the server keeps them standing on their suspension, handbrake on

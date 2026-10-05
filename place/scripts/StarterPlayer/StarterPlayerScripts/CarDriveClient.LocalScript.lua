@@ -490,7 +490,9 @@ player.CharacterAdded:Connect(onCharacter)
 -- on a phone and it could be left behind on a car you already took.
 local function nearestFreeSeat(root)
 	local best, bestD = nil, 16
-	for _, part in workspace:GetDescendants() do
+	-- v295d: only the parts within 16 studs (it walked all ~370k instances in the place on every F,
+	-- and every 0.3 s on a touch screen)
+	for _, part in workspace:GetPartBoundsInRadius(root.Position, 16) do
 		if part:IsA("VehicleSeat") and not part.Occupant then -- (disabled too: a traffic seat; the server decides)
 			local d = (part.Position - root.Position).Magnitude
 			if d < bestD then
